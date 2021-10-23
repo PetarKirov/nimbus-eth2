@@ -387,9 +387,14 @@ OK: 3/3 Fail: 0/3 Skip: 0/3
 OK: 1/1 Fail: 0/1 Skip: 0/1
 ## subnet tracker
 ```diff
++ don't unsubscribe and resubscribe within pruneBackoffSlots period                          OK
++ first gap large enough and second not for pruneBackoffSlots                                OK
++ first gap too small and second large enough for pruneBackoffSlots                          OK
++ pruneBackoffSlots slot only                                                                OK
 + should register stability subnets on attester duties                                       OK
++ unsubscribe and resubscribe if pruneBackoffSlots allows                                    OK
 ```
-OK: 1/1 Fail: 0/1 Skip: 0/1
+OK: 6/6 Fail: 0/6 Skip: 0/6
 ## underlong values
 ```diff
   Overlong SSZ.decode: BitArray[32]                                                          Skip
@@ -452,4 +457,4 @@ OK: 1/1 Fail: 0/1 Skip: 0/1
 OK: 42/56 Fail: 0/56 Skip: 14/56
 
 ---TOTAL---
-OK: 258/274 Fail: 0/274 Skip: 16/274
+OK: 263/279 Fail: 0/279 Skip: 16/279
