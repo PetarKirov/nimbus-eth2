@@ -408,7 +408,17 @@ proc init*(T: type BeaconNode,
     rpcServer: rpcServer,
     restServer: restServer,
     eventBus: eventBus,
-    actionTracker: ActionTracker.init(rng, config.subscribeAllSubnets),
+    actionTracker: ActionTracker.init(
+      rng,
+      # The adjustments on network.pubsub.parameters.pruneBackoff.seconds are
+      # to run a pure-integer ceil() and account for slots exactly combining,
+      # e.g., 12 second slots and 60s pruneBackoff, into pruneBackoff time. A
+      # (x + A - 1) div A will do the ceil()/div part, but (x + A) div A does
+      # both the ceil()/div() part but also pushes specifically an exact case
+      # of divisibility up by 2.
+      (network.pubsub.parameters.pruneBackoff.seconds.uint64 +
+        SECONDS_PER_SLOT) div SECONDS_PER_SLOT,
+      config.subscribeAllSubnets),
     processor: processor,
     blockProcessor: blockProcessor,
     consensusManager: consensusManager,

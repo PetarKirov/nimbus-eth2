@@ -61,7 +61,12 @@ type
       ## duty, we'll subscribe to the corresponding subnet to collect
       ## attestations for the aggregate
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/validator.md#phase-0-attestation-subnet-stability
+    pruneBackoffSlots*: uint64 ##\
+      ## libp2p doesn't support unsubscribing from and resubscribing to topics
+      ## within a pruneBackoff time period so detect when those gaps between a
+      ## topic unsubscription and resubscription would too short.
+
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/validator.md#phase-0-attestation-subnet-stability
 func randomStabilitySubnet*(
     self: ActionTracker, epoch: Epoch): tuple[subnet_id: SubnetId, expiration: Epoch] =
   (
@@ -97,14 +102,38 @@ const allSubnetBits = block:
   res
 
 func aggregateSubnets*(tracker: ActionTracker, wallSlot: Slot): AttnetBits =
-  var res: AttnetBits
+  var
+    res: AttnetBits
+    boundingSlotsLowInit: AttnetBits
+    boundingSlotsLow: array[ATTESTATION_SUBNET_COUNT, Slot]
+    boundingSlotsHigh {.noinit.}: array[ATTESTATION_SUBNET_COUNT, Slot]
+
+  for subnet_id in 0 ..< ATTESTATION_SUBNET_COUNT:
+    boundingSlotsHigh[subnet_id] = FAR_FUTURE_SLOT
+
   # Subscribe to subnets for upcoming duties
   for duty in tracker.duties:
+    if wallSlot <= duty.slot:
+      boundingSlotsHigh[duty.subnet_id.int] =
+        min(duty.slot, boundingSlotsHigh[duty.subnet_id.int])
+    else:
+      boundingSlotsLow[duty.subnet_id.int] =
+        max(duty.slot, boundingSlotsLow[duty.subnet_id.int])
+      boundingSlotsLowInit[duty.subnet_id.int] = true
 
     if wallSlot <= duty.slot and
         wallSlot + SUBNET_SUBSCRIPTION_LEAD_TIME_SLOTS > duty.slot:
 
       res[duty.subnet_id.int] = true
+
+  for subnet_id in 0 ..< ATTESTATION_SUBNET_COUNT:
+    if  boundingSlotsHigh[subnet_id] != FAR_FUTURE_SLOT and
+        boundingSlotsLowInit[subnet_id] and
+        # + 1 because unsubscription only occurs on slot after duty slot
+        boundingSlotsHigh[subnet_id] < boundingSlotsLow[subnet_id] +
+          tracker.pruneBackoffSlots + SUBNET_SUBSCRIPTION_LEAD_TIME_SLOTS + 1:
+      res[subnet_id] = true
+
   res
 
 func stabilitySubnets*(tracker: ActionTracker, slot: Slot): AttnetBits =
@@ -119,8 +148,11 @@ func stabilitySubnets*(tracker: ActionTracker, slot: Slot): AttnetBits =
 func updateSlot*(tracker: var ActionTracker, wallSlot: Slot) =
   # Prune duties from the past - this collection is kept small because there
   # are only so many slot/subnet combos - prune both internal and API-supplied
-  # duties at the same time
-  tracker.duties.keepItIf(it.slot >= wallSlot)
+  # duties at the same time. Remember duties long enough to be able to get the
+  # gaps between successive actions on each subnet.
+  tracker.duties.keepItIf(
+    it.slot + tracker.pruneBackoffSlots + SUBNET_SUBSCRIPTION_LEAD_TIME_SLOTS + 1 >=
+      wallSlot)
 
   # Keep stability subnets for as long as validators are validating
   var toPrune: seq[ValidatorIndex]
@@ -230,8 +262,11 @@ proc updateActions*(tracker: var ActionTracker, epochRef: EpochRef) =
       tracker.attestingSlots[epoch mod 2] or
         (1'u32 shl (slot mod SLOTS_PER_EPOCH))
 
-proc init*(T: type ActionTracker, rng: ref BrHmacDrbgContext, subscribeAllSubnets: bool): T =
+proc init*(
+    T: type ActionTracker, rng: ref BrHmacDrbgContext,
+    pruneBackoffSlots: uint64, subscribeAllSubnets: bool): T =
   T(
     rng: rng,
+    pruneBackoffSlots: pruneBackoffSlots,
     subscribeAllSubnets: subscribeAllSubnets
   )
