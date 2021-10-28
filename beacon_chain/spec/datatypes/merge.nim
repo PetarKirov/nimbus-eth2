@@ -94,7 +94,7 @@ type
     total_difficulty*: Eth2Digest   # uint256
     difficulty*: Eth2Digest         # uint256
 
-  # https://github.com/ethereum/consensus-specs/blob/v1.1.0-beta.4/specs/merge/beacon-chain.md#beaconstate
+  # https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/merge/beacon-chain.md#beaconstate
   BeaconState* = object
     # Versioning
     genesis_time*: uint64
@@ -296,7 +296,7 @@ type
     # Execution
     execution_payload*: ExecutionPayload  # [New in Merge]
 
-  # https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#signedbeaconblock
+  # https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#signedbeaconblock
   SignedBeaconBlock* = object
     message*: BeaconBlock
     signature*: ValidatorSig

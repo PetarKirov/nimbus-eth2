@@ -22,8 +22,8 @@ const
   PIVOT_VIEW_SIZE = SEED_SIZE + ROUND_SIZE
   TOTAL_SIZE = PIVOT_VIEW_SIZE + POSITION_WINDOW_SIZE
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#compute_shuffled_index
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#compute_committee
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#compute_shuffled_index
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#compute_committee
 # Port of https://github.com/protolambda/zrnt/blob/master/eth2/beacon/shuffle.go
 # Shuffles or unshuffles, depending on the `dir` (true for shuffling, false for unshuffling
 func shuffle_list*(input: var seq[ValidatorIndex], seed: Eth2Digest) =
@@ -147,13 +147,13 @@ func get_shuffled_active_validator_indices*(
     let indices = get_shuffled_active_validator_indices(state, epoch)
     return cache.shuffled_active_validator_indices.mgetOrPut(epoch, indices)
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#get_active_validator_indices
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#get_active_validator_indices
 func count_active_validators*(state: SomeBeaconState,
                               epoch: Epoch,
                               cache: var StateCache): uint64 =
   cache.get_shuffled_active_validator_indices(state, epoch).lenu64
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/phase0/beacon-chain.md#get_committee_count_per_slot
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#get_committee_count_per_slot
 func get_committee_count_per_slot*(num_active_validators: uint64): uint64 =
   clamp(
     num_active_validators div SLOTS_PER_EPOCH div TARGET_COMMITTEE_SIZE,
@@ -162,7 +162,7 @@ func get_committee_count_per_slot*(num_active_validators: uint64): uint64 =
 func get_committee_count_per_slot*(state: SomeBeaconState,
                                    epoch: Epoch,
                                    cache: var StateCache): uint64 =
-  # Return the number of committees at ``slot``.
+  ## Return the number of committees at ``slot``.
 
   let
     active_validator_count = count_active_validators(state, epoch, cache)
@@ -182,7 +182,7 @@ func get_committee_count_per_slot*(state: SomeBeaconState,
                                    cache: var StateCache): uint64 =
   get_committee_count_per_slot(state, slot.compute_epoch_at_slot, cache)
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/phase0/beacon-chain.md#get_previous_epoch
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#get_previous_epoch
 func get_previous_epoch*(current_epoch: Epoch): Epoch =
   ## Return the previous epoch (unless the current epoch is ``GENESIS_EPOCH``).
   if current_epoch == GENESIS_EPOCH:
@@ -195,7 +195,7 @@ func get_previous_epoch*(state: SomeBeaconState): Epoch =
   # Return the previous epoch (unless the current epoch is ``GENESIS_EPOCH``).
   get_previous_epoch(get_current_epoch(state))
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#compute_committee
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#compute_committee
 func compute_committee_slice*(
     active_validators, index, count: uint64): Slice[int] =
   doAssert active_validators <= ValidatorIndex.high.uint64
@@ -239,7 +239,7 @@ func compute_committee_len*(
 
   (slice.b - slice.a + 1).uint64
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/phase0/beacon-chain.md#get_beacon_committee
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#get_beacon_committee
 iterator get_beacon_committee*(
     state: SomeBeaconState, slot: Slot, index: CommitteeIndex,
     cache: var StateCache): ValidatorIndex =
@@ -284,7 +284,7 @@ func get_beacon_committee_len*(
     committees_per_slot * SLOTS_PER_EPOCH
   )
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#compute_shuffled_index
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#compute_shuffled_index
 func compute_shuffled_index*(
     index: uint64, index_count: uint64, seed: Eth2Digest): uint64 =
   ## Return the shuffled index corresponding to ``seed`` (and ``index_count``).
@@ -346,7 +346,7 @@ func compute_proposer_index(state: SomeBeaconState,
       return some(candidate_index)
     i += 1
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.0/specs/phase0/beacon-chain.md#get_beacon_proposer_index
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#get_beacon_proposer_index
 func get_beacon_proposer_index*(
     state: SomeBeaconState, cache: var StateCache, slot: Slot):
     Option[ValidatorIndex] =
@@ -379,12 +379,12 @@ func get_beacon_proposer_index*(
 
     return res
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/beacon-chain.md#get_beacon_proposer_index
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/beacon-chain.md#get_beacon_proposer_index
 func get_beacon_proposer_index*(state: SomeBeaconState, cache: var StateCache):
     Option[ValidatorIndex] =
   get_beacon_proposer_index(state, cache, state.slot)
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.2/specs/phase0/validator.md#aggregation-selection
+# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/validator.md#aggregation-selection
 func is_aggregator*(committee_len: uint64, slot_signature: ValidatorSig): bool =
   let
     modulo = max(1'u64, committee_len div TARGET_AGGREGATORS_PER_COMMITTEE)
