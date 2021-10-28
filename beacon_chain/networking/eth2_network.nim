@@ -1026,7 +1026,7 @@ proc trimConnections(node: Eth2Node, count: int) {.async.} =
   for peerId in scores.keys:
     #TODO kill a single connection instead of the whole peer
     # Not possible with the current libp2p's conn management
-    debug "kicking peer", peerId, score=scores[peerId]
+    debug "kicking peer", peerId, score=scores[peerId], direction=node.peers[peerId].direction
     await node.switch.disconnect(peerId)
     dec toKick
     inc(nbc_cycling_kicked_peers)
