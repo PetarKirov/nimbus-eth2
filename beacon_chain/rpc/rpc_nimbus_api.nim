@@ -223,4 +223,19 @@ proc installNimbusApiHandlers*(rpcServer: RpcServer, node: BeaconNode) {.
 
     res.add("allPeers", peers)
 
+    var scoring = newJObject()
+    for peerId, stats in node.network.pubsub.peerStats.mpairs:
+      var topics = newJObject()
+      for topicName, info in stats.topicInfos:
+        topics.add(topicName, %(
+          inMesh: info.inMesh,
+          meshTime: info.meshTime,
+          meshMessageDeliveries: info.meshMessageDeliveries,
+          meshFailurePenalty: info.meshFailurePenalty,
+          invalidMessageDeliveries: info.invalidMessageDeliveries
+        ))
+      scoring.add($peerId, topics)
+
+    res.add("scoring", scoring)
+
     return res
