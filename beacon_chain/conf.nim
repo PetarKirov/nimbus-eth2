@@ -65,15 +65,17 @@ type
   Web3Cmd* {.pure.} = enum
     test = "Test a web3 provider"
 
-  Web3Mode* {.pure.} = enum
-    auto # Enabled only when validators are attached
-    enabled # Always enabled
-    disabled # Always disabled
-
   SlashingDbKind* {.pure.} = enum
     v1
     v2
     both
+
+  StdoutLogKind* {.pure.} = enum
+    Auto = "auto"
+    Colors = "colors"
+    NoColors = "nocolors"
+    Json = "json"
+    None = "none"
 
   SlashProtCmd* = enum
     `import` = "Import a EIP-3076 slashing protection interchange file"
@@ -86,6 +88,12 @@ type
       desc: "Sets the log level for process and topics (e.g. \"DEBUG; TRACE:discv5,libp2p; REQUIRED:none; DISABLED:none\")"
       defaultValue: "INFO"
       name: "log-level" }: string
+
+    logStdout* {.
+      desc: "Specifies what kind of logs should be written to stdout (auto, colors, nocolors, json)"
+      defaultValueDesc: "auto"
+      defaultValue: StdoutLogKind.Auto
+      name: "log-stdout" }: StdoutLogKind
 
     logFile* {.
       desc: "Specifies a path for the written Json log file"
@@ -118,12 +126,6 @@ type
     web3Urls* {.
       desc: "One or more Web3 provider URLs used for obtaining deposit contract data"
       name: "web3-url" }: seq[string]
-
-    web3Mode* {.
-      hidden
-      defaultValue: Web3Mode.auto
-      desc: "URL of the Web3 server to observe Eth1"
-      name: "web3-mode" }: Web3Mode
 
     nonInteractive* {.
       desc: "Do not display interative prompts. Quit on missing configuration"
@@ -528,6 +530,12 @@ type
       desc: "Sets the log level"
       defaultValue: "INFO"
       name: "log-level" }: string
+
+    logStdout* {.
+      desc: "Specifies what kind of logs should be written to stdout (auto, colors, nocolors, json)"
+      defaultValueDesc: "auto"
+      defaultValue: StdoutLogKind.Auto
+      name: "log-stdout" }: StdoutLogKind
 
     logFile* {.
       desc: "Specifies a path for the written Json log file"

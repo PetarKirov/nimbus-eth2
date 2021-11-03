@@ -74,6 +74,9 @@ template init(T: type RestServerRef, ip: ValidIpAddress, port: Port): T =
            reason = res.error()
     nil
   else:
+    notice "Starting REST HTTP server",
+      url = "http://" & $ip & ":" & $port & "/"
+
     res.get()
 
 # https://github.com/ethereum/eth2.0-metrics/blob/master/metrics.md#interop-metrics
@@ -371,6 +374,15 @@ proc init*(T: type BeaconNode,
   info "Loading slashing protection database (v2)",
     path = config.validatorsDir()
 
+  func getLocalHeadSlot(): Slot =
+    dag.head.slot
+
+  proc getLocalWallSlot(): Slot =
+    beaconClock.now.slotOrZero
+
+  func getFirstSlotAtFinalizedEpoch(): Slot =
+    dag.finalizedHead.slot
+
   let
     slashingProtectionDB =
       SlashingProtectionDB.init(
@@ -388,6 +400,9 @@ proc init*(T: type BeaconNode,
       config.doppelgangerDetection,
       blockProcessor, dag, attestationPool, exitPool, validatorPool,
       syncCommitteeMsgPool, quarantine, rng, getBeaconTime, taskpool)
+    syncManager = newSyncManager[Peer, PeerID](
+      network.peerPool, getLocalHeadSlot, getLocalWallSlot,
+      getFirstSlotAtFinalizedEpoch, blockProcessor, chunkSize = 32)
 
   var node = BeaconNode(
     nickname: nickname,
@@ -397,12 +412,11 @@ proc init*(T: type BeaconNode,
     netKeys: netKeys,
     db: db,
     config: config,
+    attachedValidators: validatorPool,
     dag: dag,
-    gossipState: GossipState.Disconnected,
     quarantine: quarantine,
     attestationPool: attestationPool,
     syncCommitteeMsgPool: syncCommitteeMsgPool,
-    attachedValidators: validatorPool,
     exitPool: exitPool,
     eth1Monitor: eth1Monitor,
     rpcServer: rpcServer,
@@ -419,10 +433,12 @@ proc init*(T: type BeaconNode,
       (network.pubsub.parameters.pruneBackoff.seconds.uint64 +
         SECONDS_PER_SLOT) div SECONDS_PER_SLOT,
       config.subscribeAllSubnets),
+    requestManager: RequestManager.init(network, blockProcessor),
+    syncManager: syncManager,
     processor: processor,
     blockProcessor: blockProcessor,
     consensusManager: consensusManager,
-    requestManager: RequestManager.init(network, blockProcessor),
+    gossipState: GossipState.Disconnected,
     beaconClock: beaconClock,
     taskpool: taskpool,
     onAttestationSent: onAttestationSent,
@@ -776,19 +792,14 @@ proc onSlotEnd(node: BeaconNode, slot: Slot) {.async.} =
 
   info "Slot end",
     slot = shortLog(slot),
-    nextSlot = shortLog(slot + 1),
-    head = shortLog(node.dag.head),
-    headEpoch = shortLog(node.dag.head.slot.compute_epoch_at_slot()),
-    finalizedHead = shortLog(node.dag.finalizedHead.blck),
-    finalizedEpoch =
-      shortLog(node.dag.finalizedHead.blck.slot.compute_epoch_at_slot()),
-    nextAttestationSlot = displayInt64(nextAttestationSlot),
-    nextProposalSlot = displayInt64(nextProposalSlot),
     nextActionWait =
       if nextAttestationSlot == FAR_FUTURE_SLOT:
         "n/a"
       else:
-        shortLog(nextActionWaitTime)
+        shortLog(nextActionWaitTime),
+    nextAttestationSlot = displayInt64(nextAttestationSlot),
+    nextProposalSlot = displayInt64(nextProposalSlot),
+    head = shortLog(node.dag.head)
 
   if nextAttestationSlot != FAR_FUTURE_SLOT:
     next_action_wait.set(nextActionWaitTime.toFloatSeconds)
@@ -838,17 +849,16 @@ proc onSlotStart(
     delay = wallTime - expectedSlot.toBeaconTime()
 
   info "Slot start",
-    lastSlot = shortLog(lastSlot),
-    wallSlot = shortLog(wallSlot),
-    delay = shortLog(delay),
-    peers = len(node.network.peerPool),
-    head = shortLog(node.dag.head),
-    headEpoch = shortLog(node.dag.head.slot.compute_epoch_at_slot()),
-    finalized = shortLog(node.dag.finalizedHead.blck),
-    finalizedEpoch = shortLog(finalizedEpoch),
+    slot = shortLog(wallSlot),
+    epoch = shortLog(wallSlot.epoch),
     sync =
       if node.syncManager.inProgress: node.syncManager.syncStatus
-      else: "synced"
+      else: "synced",
+    peers = len(node.network.peerPool),
+    head = shortLog(node.dag.head),
+    finalized = shortLog(getStateField(
+      node.dag.headState.data, finalized_checkpoint)),
+    delay = shortLog(delay)
 
   # Check before any re-scheduling of onSlotStart()
   checkIfShouldStopAtEpoch(wallSlot, node.config.stopAtEpoch)
@@ -893,47 +903,6 @@ proc runOnSecondLoop(node: BeaconNode) {.async.} =
     let processingTime = finished - afterSleep
     ticks_delay.set(sleepTime.nanoseconds.float / nanosecondsIn1s)
     trace "onSecond task completed", sleepTime, processingTime
-
-proc startSyncManager(node: BeaconNode) =
-  func getLocalHeadSlot(): Slot =
-    node.dag.head.slot
-
-  proc getLocalWallSlot(): Slot =
-    node.beaconClock.now.slotOrZero
-
-  func getFirstSlotAtFinalizedEpoch(): Slot =
-    node.dag.finalizedHead.slot
-
-  proc scoreCheck(peer: Peer): bool =
-    if peer.score < PeerScoreLowLimit:
-      false
-    else:
-      true
-
-  proc onDeletePeer(peer: Peer) =
-    if peer.connectionState notin {ConnectionState.Disconnecting,
-                                   ConnectionState.Disconnected}:
-      if peer.score < PeerScoreLowLimit:
-        debug "Peer was removed from PeerPool due to low score", peer = peer,
-              peer_score = peer.score, score_low_limit = PeerScoreLowLimit,
-              score_high_limit = PeerScoreHighLimit
-        asyncSpawn(try: peer.disconnect(PeerScoreLow)
-        except Exception as exc: raiseAssert exc.msg) # Shouldn't actually happen!
-      else:
-        debug "Peer was removed from PeerPool", peer = peer,
-              peer_score = peer.score, score_low_limit = PeerScoreLowLimit,
-              score_high_limit = PeerScoreHighLimit
-        asyncSpawn(try: peer.disconnect(FaultOrError)
-        except Exception as exc: raiseAssert exc.msg) # Shouldn't actually happen!
-
-  node.network.peerPool.setScoreCheck(scoreCheck)
-  node.network.peerPool.setOnDeletePeer(onDeletePeer)
-
-  node.syncManager = newSyncManager[Peer, PeerID](
-    node.network.peerPool, getLocalHeadSlot, getLocalWallSlot,
-    getFirstSlotAtFinalizedEpoch, node.blockProcessor, chunkSize = 32
-  )
-  node.syncManager.start()
 
 func connectedPeersCount(node: BeaconNode): int =
   len(node.network.peerPool)
@@ -1066,33 +1035,28 @@ proc stop*(node: BeaconNode) =
   notice "Databases closed"
 
 proc run*(node: BeaconNode) {.raises: [Defect, CatchableError].} =
-  if bnStatus == BeaconNodeStatus.Starting:
-    # it might have been set to "Stopping" with Ctrl+C
-    bnStatus = BeaconNodeStatus.Running
+  bnStatus = BeaconNodeStatus.Running
 
-    if not(isNil(node.rpcServer)):
-      node.rpcServer.installRpcHandlers(node)
-      node.rpcServer.start()
+  if not(isNil(node.rpcServer)):
+    node.rpcServer.installRpcHandlers(node)
+    node.rpcServer.start()
 
-    if not(isNil(node.restServer)):
-      node.restServer.installRestHandlers(node)
-      node.restServer.start()
+  if not(isNil(node.restServer)):
+    node.restServer.installRestHandlers(node)
+    node.restServer.start()
 
-    node.installMessageValidators()
+  let
+    wallTime = node.beaconClock.now()
+    wallSlot = wallTime.slotOrZero()
 
-    let
-      wallTime = node.beaconClock.now()
-      wallSlot = wallTime.slotOrZero()
+  node.requestManager.start()
+  node.syncManager.start()
 
-    node.requestManager.start()
-    node.startSyncManager()
+  waitFor node.updateGossipStatus(wallSlot)
 
-    waitFor node.updateGossipStatus(wallSlot)
-
-    asyncSpawn runSlotLoop(node, wallTime, onSlotStart)
-    asyncSpawn runOnSecondLoop(node)
-    asyncSpawn runQueueProcessingLoop(node.blockProcessor)
-
+  asyncSpawn runSlotLoop(node, wallTime, onSlotStart)
+  asyncSpawn runOnSecondLoop(node)
+  asyncSpawn runQueueProcessingLoop(node.blockProcessor)
 
   ## Ctrl+C handling
   proc controlCHandler() {.noconv.} =
@@ -1129,6 +1093,8 @@ proc createPidFile(filename: string) {.raises: [Defect, IOError].} =
   addQuitProc proc {.noconv.} = discard io2.removeFile(gPidFile)
 
 proc initializeNetworking(node: BeaconNode) {.async.} =
+  node.installMessageValidators()
+
   info "Listening to incoming network requests"
   await node.network.startListening()
 
@@ -1136,10 +1102,6 @@ proc initializeNetworking(node: BeaconNode) {.async.} =
   writeFile(addressFile, node.network.announcedENR.toURI)
 
   await node.network.start()
-
-func shouldWeStartWeb3(node: BeaconNode): bool =
-  (node.config.web3Mode == Web3Mode.enabled) or
-  (node.config.web3Mode == Web3Mode.auto and node.attachedValidators[].count > 0)
 
 proc start(node: BeaconNode) {.raises: [Defect, CatchableError].} =
   let
@@ -1154,6 +1116,10 @@ proc start(node: BeaconNode) {.raises: [Defect, CatchableError].} =
     timeSinceFinalization =
       node.beaconClock.now() - finalizedHead.slot.toBeaconTime(),
     head = shortLog(head),
+    justified = shortLog(getStateField(
+      node.dag.headState.data, current_justified_checkpoint)),
+    finalized = shortLog(getStateField(
+      node.dag.headState.data, finalized_checkpoint)),
     finalizedHead = shortLog(finalizedHead),
     SLOTS_PER_EPOCH,
     SECONDS_PER_SLOT,
@@ -1166,9 +1132,10 @@ proc start(node: BeaconNode) {.raises: [Defect, CatchableError].} =
 
   waitFor node.initializeNetworking()
 
-  # TODO this does not account for validators getting attached "later"
-  if node.eth1Monitor != nil and node.shouldWeStartWeb3:
+  if node.eth1Monitor != nil:
     node.eth1Monitor.start()
+  else:
+    notice "Running without execution chain monitor, block producation partially disabled"
 
   node.run()
 
@@ -1279,14 +1246,16 @@ proc initStatusBar(node: BeaconNode) {.raises: [Defect, ValueError].} =
     node.config.statusBarContents,
     dataResolver)
 
-  when compiles(defaultChroniclesStream.output.writer):
-    defaultChroniclesStream.output.writer =
+  when compiles(defaultChroniclesStream.outputs[0].writer):
+    let tmp = defaultChroniclesStream.outputs[0].writer
+
+    defaultChroniclesStream.outputs[0].writer =
       proc (logLevel: LogLevel, msg: LogOutputStr) {.raises: [Defect].} =
         try:
           # p.hidePrompt
           erase statusBar
           # p.writeLine msg
-          stdout.write msg
+          tmp(logLevel, msg)
           render statusBar
           # p.showPrompt
         except Exception as e: # render raises Exception
@@ -1458,24 +1427,6 @@ proc loadEth2Network(config: BeaconNodeConf): Eth2NetworkMetadata {.raises: [Def
       echo "Must specify network on non-mainnet node"
       quit 1
 
-proc loadBeaconNode(config: var BeaconNodeConf, rng: ref BrHmacDrbgContext): BeaconNode {.
-    raises: [Defect, CatchableError].} =
-  let metadata = config.loadEth2Network()
-
-  # Updating the config based on the metadata certainly is not beautiful but it
-  # works
-  for node in metadata.bootstrapNodes:
-    config.bootstrapNodes.add node
-
-  BeaconNode.init(
-    metadata.cfg,
-    rng,
-    config,
-    metadata.depositContractDeployedAt,
-    metadata.eth1Network,
-    metadata.genesisData,
-    metadata.genesisDepositsSnapshot)
-
 proc doRunBeaconNode(config: var BeaconNodeConf, rng: ref BrHmacDrbgContext) {.raises: [Defect, CatchableError].} =
   info "Launching beacon node",
       version = fullVersionStr,
@@ -1499,7 +1450,22 @@ proc doRunBeaconNode(config: var BeaconNodeConf, rng: ref BrHmacDrbgContext) {.r
   # There are no managed event loops in here, to do a graceful shutdown, but
   # letting the default Ctrl+C handler exit is safe, since we only read from
   # the db.
-  let node = loadBeaconNode(config, rng)
+
+  let metadata = config.loadEth2Network()
+
+  # Updating the config based on the metadata certainly is not beautiful but it
+  # works
+  for node in metadata.bootstrapNodes:
+    config.bootstrapNodes.add node
+
+  let node = BeaconNode.init(
+    metadata.cfg,
+    rng,
+    config,
+    metadata.depositContractDeployedAt,
+    metadata.eth1Network,
+    metadata.genesisData,
+    metadata.genesisDepositsSnapshot)
 
   if bnStatus == BeaconNodeStatus.Stopping:
     return
@@ -1817,14 +1783,12 @@ programMain:
   var
     config = makeBannerAndConfig(clientId, BeaconNodeConf)
 
-  setupStdoutLogging(config.logLevel)
-
   if not(checkAndCreateDataDir(string(config.dataDir))):
     # We are unable to access/create data folder or data folder's
     # permissions are insecure.
     quit QuitFailure
 
-  setupLogging(config.logLevel, config.logFile)
+  setupLogging(config.logLevel, config.logStdout, config.logFile)
 
   ## This Ctrl+C handler exits the program in non-graceful way.
   ## It's responsible for handling Ctrl+C in sub-commands such
