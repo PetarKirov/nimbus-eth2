@@ -217,7 +217,9 @@ suite "Gossip validation - Extra": # Not based on preset config
       expectedCount = subcommittee.count(pubkey)
       index = ValidatorIndex(
         state[].data.validators.mapIt(it.pubkey).find(pubKey))
-      privateItem = ValidatorPrivateItem(privateKey: MockPrivKeys[index])
+      privateItem = ValidatorPrivateItem(
+        kind: ValidatorKind.Local,
+        privateKey: MockPrivKeys[index])
       validator = AttachedValidator(pubKey: pubkey,
         kind: ValidatorKind.Local, data: privateItem, index: some(index))
       msg = waitFor signSyncCommitteeMessage(
