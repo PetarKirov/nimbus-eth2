@@ -66,7 +66,7 @@ type
       ## within a pruneBackoff time period so detect when those gaps between a
       ## topic unsubscription and resubscription would too short.
 
-# https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/validator.md#phase-0-attestation-subnet-stability
+# https://github.com/ethereum/consensus-specs/blob/v1.1.4/specs/phase0/validator.md#phase-0-attestation-subnet-stability
 func randomStabilitySubnet*(
     self: ActionTracker, epoch: Epoch): tuple[subnet_id: SubnetId, expiration: Epoch] =
   (

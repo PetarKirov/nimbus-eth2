@@ -128,26 +128,29 @@ proc addBlock*(
 # Storage
 # ------------------------------------------------------------------------------
 
-proc dumpBlock*[T](
+proc dumpInvalidBlock*(
     self: BlockProcessor,
     signedBlock: phase0.SignedBeaconBlock | altair.SignedBeaconBlock |
-                 merge.SignedBeaconBlock,
+                 merge.SignedBeaconBlock) =
+  if self.dumpEnabled:
+    dump(self.dumpDirInvalid, signedBlock)
+
+proc dumpBlock*[T](
+    self: BlockProcessor,
+    signedBlock: ForkySignedBeaconBlock,
     res: Result[T, (ValidationResult, BlockError)]) =
   if self.dumpEnabled and res.isErr:
     case res.error[1]
     of Invalid:
-      dump(
-        self.dumpDirInvalid, signedBlock)
+      self.dumpInvalidBlock(signedBlock)
     of MissingParent:
-      dump(
-        self.dumpDirIncoming, signedBlock)
+      dump(self.dumpDirIncoming, signedBlock)
     else:
       discard
 
 proc storeBlock*(
     self: var BlockProcessor,
-    signedBlock: phase0.SignedBeaconBlock | altair.SignedBeaconBlock |
-                 merge.SignedBeaconBlock,
+    signedBlock: ForkySignedBeaconBlock,
     wallSlot: Slot): Result[BlockRef, BlockError] =
   let
     attestationPool = self.consensusManager.attestationPool

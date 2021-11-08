@@ -10,7 +10,8 @@ import
   options, stew/endians2,
   ../beacon_chain/validators/validator_pool,
   ../beacon_chain/spec/datatypes/merge,
-  ../beacon_chain/spec/[helpers, keystore, signatures, state_transition, forks]
+  ../beacon_chain/spec/[
+    beaconstate, helpers, keystore, signatures, state_transition, validator]
 
 type
   MockPrivKeysT = object
@@ -169,7 +170,7 @@ func makeAttestationData*(
     "Computed epoch was " & $slot.compute_epoch_at_slot &
     "  while the state current_epoch was " & $current_epoch
 
-  # https://github.com/ethereum/consensus-specs/blob/v1.1.3/specs/phase0/validator.md#attestation-data
+  # https://github.com/ethereum/consensus-specs/blob/v1.1.4/specs/phase0/validator.md#attestation-data
   AttestationData(
     slot: slot,
     index: committee_index.uint64,
@@ -289,15 +290,15 @@ iterator makeTestBlocks*(
   attested: bool,
   cfg = defaultRuntimeConfig): ForkedSignedBeaconBlock =
   var
-    state = assignClone(state)[]
+    state = assignClone(state)
     parent_root = parent_root
   for _ in 0..<blocks:
     let attestations = if attested:
-      makeFullAttestations(state, parent_root, getStateField(state, slot), cache)
+      makeFullAttestations(state[], parent_root, getStateField(state[], slot), cache)
     else:
       @[]
 
     let blck = addTestBlock(
-      state, parent_root, cache, attestations = attestations, cfg = cfg)
+      state[], parent_root, cache, attestations = attestations, cfg = cfg)
     yield blck
     parent_root = blck.root
