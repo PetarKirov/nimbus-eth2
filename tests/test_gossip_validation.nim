@@ -222,13 +222,14 @@ suite "Gossip validation - Extra": # Not based on preset config
         privateKey: MockPrivKeys[index])
       validator = AttachedValidator(pubKey: pubkey,
         kind: ValidatorKind.Local, data: privateItem, index: some(index))
-      msg = waitFor signSyncCommitteeMessage(
+      resMsg = waitFor signSyncCommitteeMessage(
         validator, slot,
         state[].data.fork, state[].data.genesis_validators_root, state[].root)
+      msg = resMsg.get()
 
       syncCommitteeMsgPool = newClone(SyncCommitteeMsgPool.init())
       res = validateSyncCommitteeMessage(
-        dag, syncCommitteeMsgPool[], msg.get(), subcommitteeIdx,
+        dag, syncCommitteeMsgPool[], msg, subcommitteeIdx,
         slot.toBeaconTime(), true)
       (positions, cookedSig) = res.get()
 
@@ -248,8 +249,9 @@ suite "Gossip validation - Extra": # Not based on preset config
           contribution.message.contribution)
         syncCommitteeMsgPool[].addSyncContribution(
           contribution[], contribution.message.contribution.signature.load.get)
-        waitFor validator.sign(
+        let signRes = validator.sign(
           contribution, state[].data.fork, state[].data.genesis_validators_root)
+        doAssert(signRes.isOk())
         contribution
       aggregate = syncCommitteeMsgPool[].produceSyncAggregate(state[].root)
 
