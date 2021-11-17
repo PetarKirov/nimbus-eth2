@@ -70,3 +70,6 @@ resttest0_data
 # Nimble user files
 nimble.develop
 nimble.paths
+
+# Direnv + Nix Flake generated files
+.direnv/
